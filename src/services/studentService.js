@@ -2,6 +2,7 @@ const Student = require("../models/student");
 const {
   getOutputFromStudent,
 } = require("../utils/student/getOutputFromStudent/getOutputFromStudent");
+const redisClient = require("../config/cache");
 
 exports.getOutputFromStudentId = async (studentId) => {
   try {
@@ -21,12 +22,35 @@ exports.getOutputFromStudentId = async (studentId) => {
 
 module.exports.getStudentsByName = async (inputName) => {
   try {
-    // Case-insensitive search using $regex
+    const normalizedName = inputName.trim().toLowerCase();
+    const cacheKey = `students:name:${normalizedName}`;
+
+    // 1. Check Redis cache
+    const cachedStudents = await redisClient.get(cacheKey);
+
+    if (cachedStudents) {
+      console.log("Returning from Redis cache");
+      return JSON.parse(cachedStudents);
+    }
+
+    // 2. If not in cache, fetch from MongoDB
+    console.log("Fetching from MongoDB");
+
     const students = await Student.find({
       name: { $regex: new RegExp(inputName, "i") },
     });
+
+    // 3. Save result to Redis cache
+    await redisClient.setEx(
+      cacheKey,
+      300, // cache expiry in seconds: 5 minutes
+      JSON.stringify(students)
+    );
+
+    // 4. Return result
     return students;
   } catch (error) {
     console.error("Error fetching students by name:", error);
+    throw error;
   }
 };
